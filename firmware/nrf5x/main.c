@@ -10,6 +10,19 @@
 #include "nrf_drv_rtc.h"
 #include "nrf_drv_clock.h"
 #include "nrf_gpio.h"
+#include "nfc_t2t_parser.h"
+#include "nfc_t4t_cc_file.h"
+#include "nfc_t4t_hl_detection_procedures.h"
+#include "nfc_ndef_msg_parser.h"
+
+
+#include "nrf_log.h"
+#include "nrf_log_ctrl.h"
+#include "nrf_log_default_backends.h"
+
+
+
+
 /**
  * advertising interval in milliseconds
  */
@@ -30,6 +43,9 @@ int key_index = -1;
 static char public_key[MAX_KEYS][28] = {
     "OFFLINEFINDINGPUBLICKEYHERE!",
 };
+
+
+
 
 void setRandomIndex()
 {
@@ -139,11 +155,68 @@ static void timer_config(void)
     nrf_drv_rtc_enable(&rtc1);
 }
 
+//NFC
+#define NFC_MESSAGE_BUFFER_SIZE   64
+static uint8_t nfc_message_buffer[NFC_MESSAGE_BUFFER_SIZE];
+static nfc_t2t_t m_t2t;
+
+static char private_key[64];
+
+// Function to handle NFC data reception
+void nfc_data_received(uint8_t* data, uint32_t data_len) {
+    // Check if the received data is a valid private key
+    if (data_len == sizeof(private_key)) {
+        memcpy(private_key, data, data_len);
+        // Now, the private_key variable contains the received private key.
+    }
+}
+
+// Initialize the NFC stack
+void nfc_init(void)
+{
+    ret_code_t err_code;
+
+    // Initialize NFC library
+    err_code = nfc_t2t_setup(nfc_callback, NULL);
+    APP_ERROR_CHECK(err_code);
+
+    // Set the URI message (optional)
+    nfc_uri_msg_encode(NFC_URI_HTTPS_WWW, "example.com", nfc_message_buffer, sizeof(nfc_message_buffer));
+    err_code = nfc_t2t_payload_set(&m_t2t, nfc_message_buffer, sizeof(nfc_message_buffer));
+    APP_ERROR_CHECK(err_code);
+
+    // Set NFC message in response to NFC field detection
+    err_code = nfc_t2t_emulation_start(&m_t2t);
+    APP_ERROR_CHECK(err_code);
+}
+
+// Function nfc_callback to handle NFC events (e.g., data received from an NFC reader)
+static void nfc_callback(void *context, nfc_t2t_event_t event, const uint8_t *data, size_t data_length)
+{
+    switch (event)
+    {
+        case NFC_T2T_EVENT_FIELD_ON:
+            // NFC field detected, handle as needed
+            break;
+        case NFC_T2T_EVENT_FIELD_OFF:
+            // NFC field lost, handle as needed
+            break;
+        case NFC_T2T_EVENT_DATA_RX:
+            // NFC data received, handle the received data
+             nfc_data_received(data, data_length);
+            break;
+        default:
+            break;
+    }
+}
+
+
 /**
  * main function
  */
 int main(void)
 {
+
     // Find the last filled index
     for (int i = MAX_KEYS - 1; i >= 0; i--)
     {
@@ -153,6 +226,9 @@ int main(void)
             break;
         }
     }
+
+    // Initialize NFC
+    nfc_init();
 
     // Select a random index as start
     setRandomIndex();
